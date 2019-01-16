@@ -66,7 +66,7 @@ projectTest {
     val prefixForPpropertiesToForward = "fd."
     for((key, value) in properties) {
         if (key.startsWith(prefixForPpropertiesToForward)) {
-            systemProperty(key.substring(prefixForPpropertiesToForward.length), value)
+            systemProperty(key.substring(prefixForPpropertiesToForward.length), value!!)
         }
     }
 }
@@ -86,6 +86,8 @@ projectTest("quickTest") {
 
 val generateTests by generator("org.jetbrains.kotlin.generators.tests.GenerateJsTestsKt")
 val testDataDir = project(":js:js.translator").projectDir.resolve("testData")
+
+val generateIrRuntimeKlib by generator("org.jetbrains.kotlin.generators.tests.GenerateIrRuntimeKt")
 
 val npmInstall by tasks.getting(NpmTask::class) {
     setWorkingDir(testDataDir)
