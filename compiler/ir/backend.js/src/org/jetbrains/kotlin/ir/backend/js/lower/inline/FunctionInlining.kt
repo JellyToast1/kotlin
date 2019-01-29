@@ -22,6 +22,7 @@ import org.jetbrains.kotlin.ir.expressions.impl.IrGetValueImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrReturnableBlockImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrVarargImpl
 import org.jetbrains.kotlin.ir.symbols.impl.IrReturnableBlockSymbolImpl
+import org.jetbrains.kotlin.ir.types.irTypeKotlinBuiltIns
 import org.jetbrains.kotlin.ir.types.toKotlinType
 import org.jetbrains.kotlin.ir.util.getArguments
 import org.jetbrains.kotlin.ir.util.parentAsClass
@@ -123,6 +124,7 @@ internal class FunctionInlining(val context: Context): IrElementTransformerWithC
     //-------------------------------------------------------------------------//
 
     fun inline(irModule: IrModuleFragment): IrElement {
+        irTypeKotlinBuiltIns = irModule.irBuiltins.builtIns
         val transformedModule = irModule.accept(this, Ref(false))
         DescriptorSubstitutorForExternalScope(globalSubstituteMap, context).run(transformedModule)   // Transform calls to object that might be returned from inline function call.
         return transformedModule
@@ -372,7 +374,7 @@ private class Inliner(val globalSubstituteMap: MutableMap<DeclarationDescriptor,
         override fun visitElement(element: IrElement) = element.accept(this, null)
     }
 
-    private fun isLambdaCall(irCall: IrCall)  = irCall.descriptor.isFunctionInvoke && irCall.dispatchReceiver is IrGetValue
+    private fun isLambdaCall(irCall: IrCall) = irCall.symbol.owner.isFunctionInvoke && irCall.dispatchReceiver is IrGetValue
 
     private fun createTypeSubstitutor(irCall: IrCall): TypeSubstitutor? {
         if (irCall.typeArgumentsCount == 0) return null

@@ -21,16 +21,21 @@ import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.ir.UNDEFINED_OFFSET
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.declarations.impl.IrFieldImpl
+import org.jetbrains.kotlin.ir.declarations.impl.IrFunctionImpl
 import org.jetbrains.kotlin.ir.declarations.impl.IrPropertyImpl
 import org.jetbrains.kotlin.ir.declarations.impl.IrValueParameterImpl
 import org.jetbrains.kotlin.ir.declarations.lazy.*
 import org.jetbrains.kotlin.ir.expressions.impl.IrErrorExpressionImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrExpressionBodyImpl
+import org.jetbrains.kotlin.ir.symbols.impl.IrValueParameterSymbolImpl
+import org.jetbrains.kotlin.ir.types.impl.IrDynamicTypeImpl
 import org.jetbrains.kotlin.load.java.descriptors.JavaCallableMemberDescriptor
 import org.jetbrains.kotlin.resolve.BindingContext
 import org.jetbrains.kotlin.resolve.DescriptorUtils
 import org.jetbrains.kotlin.resolve.hasBackingField
 import org.jetbrains.kotlin.types.KotlinType
+import org.jetbrains.kotlin.types.Variance
+import org.jetbrains.kotlin.types.isDynamic
 
 class DeclarationStubGenerator(
     moduleDescriptor: ModuleDescriptor,
@@ -150,7 +155,23 @@ class DeclarationStubGenerator(
             descriptor.original
         ) {
             deserializer?.findDeserializedDeclaration(referenced) as? IrSimpleFunction ?:
-            IrLazyFunction(UNDEFINED_OFFSET, UNDEFINED_OFFSET, origin, it, this, typeTranslator)
+            if (descriptor.dispatchReceiverParameter?.type?.isDynamic() == true) {
+                val dynType = descriptor.dispatchReceiverParameter?.type!!
+                val irDynType = IrDynamicTypeImpl(dynType, emptyList(), Variance.INVARIANT)
+                IrFunctionImpl(UNDEFINED_OFFSET, UNDEFINED_OFFSET, origin, it, irDynType, descriptor.visibility, descriptor.modality).apply {
+                    descriptor.valueParameters.mapTo(valueParameters) { p ->
+                        IrValueParameterImpl(UNDEFINED_OFFSET, UNDEFINED_OFFSET, origin, p, irDynType, null, null).also {
+                            it.parent = this
+                        }
+                    }
+                    descriptor.dispatchReceiverParameter?.let { d ->
+                        dispatchReceiverParameter = IrValueParameterImpl(UNDEFINED_OFFSET, UNDEFINED_OFFSET, origin, d, irDynType, null).also {
+                            it.parent = this
+                        }
+                    }
+                }
+            }
+            else IrLazyFunction(UNDEFINED_OFFSET, UNDEFINED_OFFSET, origin, it, this, typeTranslator)
         }
     }
 

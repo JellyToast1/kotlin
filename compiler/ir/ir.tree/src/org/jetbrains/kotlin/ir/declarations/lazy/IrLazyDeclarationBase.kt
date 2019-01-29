@@ -56,8 +56,15 @@ abstract class IrLazyDeclarationBase(
     private fun createLazyParent(): IrDeclarationParent? {
         val currentDescriptor = descriptor
 
-        val containingDeclaration =
+        fun foo(property: PropertyDescriptor): DeclarationDescriptor {
+            return property.containingDeclaration.let { if (it is PropertyDescriptor) foo(it) else it }
+        }
+
+        var containingDeclaration =
             ((currentDescriptor as? PropertyAccessorDescriptor)?.correspondingProperty ?: currentDescriptor).containingDeclaration
+
+        if (containingDeclaration is PropertyDescriptor) containingDeclaration = foo(containingDeclaration)
+
         return when (containingDeclaration) {
             is PackageFragmentDescriptor -> stubGenerator.generateOrGetEmptyExternalPackageFragmentStub(containingDeclaration).also {
                 it.declarations.add(this)
