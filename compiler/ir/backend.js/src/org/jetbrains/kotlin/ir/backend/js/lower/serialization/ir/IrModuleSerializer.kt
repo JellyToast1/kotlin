@@ -39,7 +39,7 @@ internal class IrModuleSerializer(
 
     private val loopIndex = mutableMapOf<IrLoop, Int>()
     private var currentLoopIndex = 0
-    val descriptorReferenceSerializer = DescriptorReferenceSerializer(declarationTable)
+    val descriptorReferenceSerializer = DescriptorReferenceSerializer(declarationTable, { string -> serializeString(string) })
 
     // The same symbol can be used multiple times in a module
     // so use this index to store symbol data only once.
@@ -50,6 +50,44 @@ internal class IrModuleSerializer(
     // so use this index to store type data only once.
     val protoTypeMap = mutableMapOf<IrTypeKey, Int>()
     val protoTypeArray = arrayListOf<IrKlibProtoBuf.IrType>()
+
+    val protoStringMap = mutableMapOf<String, Int>()
+    val protoStringArray = arrayListOf<String>()
+
+    /* ------- Common fields ---------------------------------------------------- */
+
+    private fun serializeIrDeclarationOrigin(origin: IrDeclarationOrigin) =
+        IrKlibProtoBuf.IrDeclarationOrigin.newBuilder()
+            .setCustom(serializeString((origin as IrDeclarationOriginImpl).name))
+            .build()
+
+    private fun serializeIrStatementOrigin(origin: IrStatementOrigin) =
+        IrKlibProtoBuf.IrStatementOrigin.newBuilder()
+            .setName(serializeString((origin as IrStatementOriginImpl).debugName))
+            .build()
+
+    private fun serializeVisibility(visibility: Visibility) =
+        IrKlibProtoBuf.Visibility.newBuilder()
+            .setName(serializeString(visibility.name))
+            .build()
+
+    private fun serializeCoordinates(start: Int, end: Int): IrKlibProtoBuf.Coordinates {
+        return IrKlibProtoBuf.Coordinates.newBuilder()
+            .setStartOffset(start)
+            .setEndOffset(end)
+            .build()
+    }
+
+    /* ------- Strings ---------------------------------------------------------- */
+
+    fun serializeString(value: String): IrKlibProtoBuf.String {
+        val proto = IrKlibProtoBuf.String.newBuilder()
+        proto.index = protoStringMap.getOrPut(value) {
+            protoStringArray.add(value)
+            protoStringArray.size - 1
+        }
+        return proto.build()
+    }
 
     /* ------- IrSymbols -------------------------------------------------------- */
 
@@ -76,7 +114,7 @@ internal class IrModuleSerializer(
         is IrReturnableBlockSymbol ->
             IrKlibProtoBuf.IrSymbolKind.RETURNABLE_BLOCK_SYMBOL
         is IrFieldSymbol ->
-            if (symbol.owner.correspondingProperty == null)
+            if (symbol.owner.correspondingProperty.let { it == null || it.isDelegated })
                 IrKlibProtoBuf.IrSymbolKind.STANDALONE_FIELD_SYMBOL
             else
                 IrKlibProtoBuf.IrSymbolKind.FIELD_SYMBOL
@@ -376,7 +414,7 @@ internal class IrModuleSerializer(
         val proto = IrKlibProtoBuf.IrFunctionReference.newBuilder()
             .setSymbol(serializeIrSymbol(callable.symbol))
             .setMemberAccess(serializeMemberAccessCommon(callable))
-        callable.origin?.let { proto.origin = (it as IrStatementOriginImpl).debugName }
+        callable.origin?.let { proto.origin = serializeIrStatementOrigin(it) }
         return proto.build()
     }
 
@@ -387,7 +425,9 @@ internal class IrModuleSerializer(
         callable.field?.let { proto.field = serializeIrSymbol(it) }
         callable.getter?.let { proto.getter = serializeIrSymbol(it) }
         callable.setter?.let { proto.setter = serializeIrSymbol(it) }
-        callable.origin?.let { proto.origin = (it as IrStatementOriginImpl).debugName }
+        callable.origin?.let { proto.origin = serializeIrStatementOrigin(it) }
+        val property = callable.getter!!.owner.correspondingProperty!!
+        descriptorReferenceSerializer.serializeDescriptorReference(property)?.let { proto.setDescriptor(it) }
         return proto.build()
     }
 
@@ -408,7 +448,7 @@ internal class IrModuleSerializer(
             IrConstKind.Short -> proto.short = (value.value as Short).toInt()
             IrConstKind.Int -> proto.int = value.value as Int
             IrConstKind.Long -> proto.long = value.value as Long
-            IrConstKind.String -> proto.string = value.value as String
+            IrConstKind.String -> proto.string = serializeString(value.value as String)
             IrConstKind.Float -> proto.float = value.value as Float
             IrConstKind.Double -> proto.double = value.value as Double
         }
@@ -605,7 +645,7 @@ internal class IrModuleSerializer(
     private fun serializeLoop(expression: IrLoop): IrKlibProtoBuf.Loop {
         val proto = IrKlibProtoBuf.Loop.newBuilder()
             .setCondition(serializeExpression(expression.condition))
-        val label = expression.label
+        val label = expression.label?.let { serializeString(it) }
         if (label != null) {
             proto.label = label
         }
@@ -630,7 +670,7 @@ internal class IrModuleSerializer(
 
     private fun serializeBreak(expression: IrBreak): IrKlibProtoBuf.IrBreak {
         val proto = IrKlibProtoBuf.IrBreak.newBuilder()
-        val label = expression.label
+        val label = expression.label?.let { serializeString(it) }
         if (label != null) {
             proto.label = label
         }
@@ -642,7 +682,7 @@ internal class IrModuleSerializer(
 
     private fun serializeContinue(expression: IrContinue): IrKlibProtoBuf.IrContinue {
         val proto = IrKlibProtoBuf.IrContinue.newBuilder()
-        val label = expression.label
+        val label = expression.label?.let { serializeString(it) }
         if (label != null) {
             proto.label = label
         }
@@ -650,13 +690,6 @@ internal class IrModuleSerializer(
         proto.loopId = loopId
 
         return proto.build()
-    }
-
-    private fun serializeCoordinates(start: Int, end: Int): IrKlibProtoBuf.Coordinates {
-        return IrKlibProtoBuf.Coordinates.newBuilder()
-            .setStartOffset(start)
-            .setEndOffset(end)
-            .build()
     }
 
     private fun serializeExpression(expression: IrExpression): IrKlibProtoBuf.IrExpression {
@@ -757,7 +790,7 @@ internal class IrModuleSerializer(
     private fun serializeIrValueParameter(parameter: IrValueParameter): IrKlibProtoBuf.IrValueParameter {
         val proto = IrKlibProtoBuf.IrValueParameter.newBuilder()
             .setSymbol(serializeIrSymbol(parameter.symbol))
-            .setName(parameter.name.toString())
+            .setName(serializeString(parameter.name.toString()))
             .setIndex(parameter.index)
             .setType(serializeIrType(parameter.type))
             .setIsCrossinline(parameter.isCrossinline)
@@ -772,7 +805,7 @@ internal class IrModuleSerializer(
     private fun serializeIrTypeParameter(parameter: IrTypeParameter): IrKlibProtoBuf.IrTypeParameter {
         val proto = IrKlibProtoBuf.IrTypeParameter.newBuilder()
             .setSymbol(serializeIrSymbol(parameter.symbol))
-            .setName(parameter.name.toString())
+            .setName(serializeString(parameter.name.toString()))
             .setIndex(parameter.index)
             .setVariance(serializeIrTypeVariance(parameter.variance))
             .setIsReified(parameter.isReified)
@@ -792,7 +825,7 @@ internal class IrModuleSerializer(
 
     private fun serializeIrFunctionBase(function: IrFunctionBase): IrKlibProtoBuf.IrFunctionBase {
         val proto = IrKlibProtoBuf.IrFunctionBase.newBuilder()
-            .setName(function.name.toString())
+            .setName(serializeString(function.name.toString()))
             .setVisibility(serializeVisibility(function.visibility))
             .setIsInline(function.isInline)
             .setIsExternal(function.isExternal)
@@ -853,16 +886,12 @@ internal class IrModuleSerializer(
         .setBody(serializeStatement(declaration.body))
         .build()
 
-    private fun serializeVisibility(visibility: Visibility): String {
-        return visibility.name
-    }
-
     private fun serializeIrProperty(property: IrProperty): IrKlibProtoBuf.IrProperty {
         val index = declarationTable.uniqIdByDeclaration(property)
 
         val proto = IrKlibProtoBuf.IrProperty.newBuilder()
             .setIsDelegated(property.isDelegated)
-            .setName(property.name.toString())
+            .setName(serializeString(property.name.toString()))
             .setVisibility(serializeVisibility(property.visibility))
             .setModality(serializeModality(property.modality))
             .setIsVar(property.isVar)
@@ -889,7 +918,7 @@ internal class IrModuleSerializer(
     private fun serializeIrField(field: IrField): IrKlibProtoBuf.IrField {
         val proto = IrKlibProtoBuf.IrField.newBuilder()
             .setSymbol(serializeIrSymbol(field.symbol))
-            .setName(field.name.toString())
+            .setName(serializeString(field.name.toString()))
             .setVisibility(serializeVisibility(field.visibility))
             .setIsFinal(field.isFinal)
             .setIsExternal(field.isExternal)
@@ -905,7 +934,7 @@ internal class IrModuleSerializer(
     private fun serializeIrVariable(variable: IrVariable): IrKlibProtoBuf.IrVariable {
         val proto = IrKlibProtoBuf.IrVariable.newBuilder()
             .setSymbol(serializeIrSymbol(variable.symbol))
-            .setName(variable.name.toString())
+            .setName(serializeString(variable.name.toString()))
             .setType(serializeIrType(variable.type))
             .setIsConst(variable.isConst)
             .setIsVar(variable.isVar)
@@ -934,7 +963,7 @@ internal class IrModuleSerializer(
 
     private fun serializeIrClass(clazz: IrClass): IrKlibProtoBuf.IrClass {
         val proto = IrKlibProtoBuf.IrClass.newBuilder()
-            .setName(clazz.name.toString())
+            .setName(serializeString(clazz.name.toString()))
             .setSymbol(serializeIrSymbol(clazz.symbol))
             .setKind(serializeClassKind(clazz.kind))
             .setVisibility(serializeVisibility(clazz.visibility))
@@ -956,7 +985,7 @@ internal class IrModuleSerializer(
 
     private fun serializeIrEnumEntry(enumEntry: IrEnumEntry): IrKlibProtoBuf.IrEnumEntry {
         val proto = IrKlibProtoBuf.IrEnumEntry.newBuilder()
-            .setName(enumEntry.name.toString())
+            .setName(serializeString(enumEntry.name.toString()))
             .setSymbol(serializeIrSymbol(enumEntry.symbol))
 
         enumEntry.initializerExpression?.let {
@@ -967,10 +996,6 @@ internal class IrModuleSerializer(
         }
         return proto.build()
     }
-
-    private fun serializeIrDeclarationOrigin(origin: IrDeclarationOrigin) =
-        IrKlibProtoBuf.IrDeclarationOrigin.newBuilder()
-            .setName((origin as IrDeclarationOriginImpl).name)
 
     private fun serializeDeclaration(declaration: IrDeclaration): IrKlibProtoBuf.IrDeclaration {
         logger.log { "### serializing Declaration: ${ir2string(declaration)}" }
@@ -1015,19 +1040,14 @@ internal class IrModuleSerializer(
 
         proto.setDeclarator(declarator)
 
-        // TODO disabled for now.
-        //val fileName = context.ir.originalModuleIndex.declarationToFile[declaration.descriptor]
-        //proto.fileName = fileName
-
-        proto.fileName = "some file name"
-
         return proto.build()
     }
 
 // ---------- Top level ------------------------------------------------------
 
     fun serializeFileEntry(entry: SourceManager.FileEntry) = IrKlibProtoBuf.FileEntry.newBuilder()
-        .setName(entry.name)
+        .setName(serializeString(entry.name))
+        .addAllLineStartOffsets(entry.lineStartOffsets.asIterable())
         .build()
 
     val topLevelDeclarations = mutableMapOf<UniqId, ByteArray>()
@@ -1035,7 +1055,7 @@ internal class IrModuleSerializer(
     fun serializeIrFile(file: IrFile): IrKlibProtoBuf.IrFile {
         val proto = IrKlibProtoBuf.IrFile.newBuilder()
             .setFileEntry(serializeFileEntry(file.fileEntry))
-            .setFqName(file.fqName.toString())
+            .setFqName(serializeString(file.fqName.toString()))
 
         file.declarations.forEach {
             if (it is IrTypeAlias) return@forEach
@@ -1053,7 +1073,7 @@ internal class IrModuleSerializer(
 
     fun serializeModule(module: IrModuleFragment): IrKlibProtoBuf.IrModule {
         val proto = IrKlibProtoBuf.IrModule.newBuilder()
-            .setName(module.name.toString())
+            .setName(serializeString(module.name.toString()))
         module.addSyntheticDynamicFile()
         module.files.forEach {
             proto.addFile(serializeIrFile(it))
@@ -1064,6 +1084,10 @@ internal class IrModuleSerializer(
 
         proto.typeTable = IrKlibProtoBuf.IrTypeTable.newBuilder()
             .addAllTypes(protoTypeArray)
+            .build()
+
+        proto.stringTable = IrKlibProtoBuf.StringTable.newBuilder()
+            .addAllStrings(protoStringArray)
             .build()
 
         return proto.build()

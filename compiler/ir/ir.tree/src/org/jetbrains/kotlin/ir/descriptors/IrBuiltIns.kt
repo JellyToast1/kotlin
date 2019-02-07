@@ -18,6 +18,7 @@ import org.jetbrains.kotlin.ir.symbols.impl.IrExternalPackageFragmentSymbolImpl
 import org.jetbrains.kotlin.ir.types.IrSimpleType
 import org.jetbrains.kotlin.ir.types.IrType
 import org.jetbrains.kotlin.ir.types.impl.IrSimpleTypeImpl
+import org.jetbrains.kotlin.ir.types.toIrType
 import org.jetbrains.kotlin.ir.types.withHasQuestionMark
 import org.jetbrains.kotlin.ir.util.DeclarationStubGenerator
 import org.jetbrains.kotlin.ir.util.SymbolTable
@@ -95,8 +96,8 @@ class IrBuiltIns(
         builtIns.nothing to IrTypeMapper({ nothingType }, { nothingNType }),
         builtIns.unit to IrTypeMapper({ unitType }, { buildNullableType(unitType) }),
         builtIns.string to IrTypeMapper({ stringType }, { buildNullableType(stringType) }),
-        builtIns.throwable to IrTypeMapper({ throwableType }, { buildNullableType(throwableType) })
-//        builtIns.array to { arrayClass.owner.defaultType }
+        builtIns.throwable to IrTypeMapper({ throwableType }, { buildNullableType(throwableType) }),
+        builtIns.array to IrTypeMapper({ arrayType }, { buildNullableType(arrayType) })
     )
 
     fun getPrimitiveTypeOrNullByDescriptor(descriptor: ClassifierDescriptor, isNullable: Boolean) =
@@ -160,6 +161,7 @@ class IrBuiltIns(
     val stringType by lazy { string.toIrType() }
     val stringClass by lazy { builtIns.string.toIrSymbol() }
 
+    val arrayType by lazy { builtIns.array.toIrType(symbolTable = symbolTable) }
     val arrayClass by lazy { builtIns.array.toIrSymbol() }
 
     val throwableType by lazy { builtIns.throwable.defaultType.toIrType() }

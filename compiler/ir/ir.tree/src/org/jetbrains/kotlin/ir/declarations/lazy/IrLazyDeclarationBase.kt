@@ -56,14 +56,8 @@ abstract class IrLazyDeclarationBase(
     private fun createLazyParent(): IrDeclarationParent? {
         val currentDescriptor = descriptor
 
-        fun foo(property: PropertyDescriptor): DeclarationDescriptor {
-            return property.containingDeclaration.let { if (it is PropertyDescriptor) foo(it) else it }
-        }
-
-        var containingDeclaration =
+        val containingDeclaration =
             ((currentDescriptor as? PropertyAccessorDescriptor)?.correspondingProperty ?: currentDescriptor).containingDeclaration
-
-        if (containingDeclaration is PropertyDescriptor) containingDeclaration = foo(containingDeclaration)
 
         return when (containingDeclaration) {
             is PackageFragmentDescriptor -> stubGenerator.generateOrGetEmptyExternalPackageFragmentStub(containingDeclaration).also {
@@ -71,6 +65,7 @@ abstract class IrLazyDeclarationBase(
             }
             is ClassDescriptor -> stubGenerator.generateClassStub(containingDeclaration)
             is FunctionDescriptor -> stubGenerator.generateFunctionStub(containingDeclaration)
+            is PropertyDescriptor -> stubGenerator.generateFunctionStub(containingDeclaration.run { getter ?: setter!! })
             else -> throw AssertionError("Package or class expected: $containingDeclaration; for $currentDescriptor")
         }
     }
