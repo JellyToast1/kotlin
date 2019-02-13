@@ -20,15 +20,15 @@ import org.jetbrains.kotlin.ir.visitors.transformChildrenVoid
 import org.jetbrains.kotlin.name.Name
 
 class ClassReferenceLowering(val context: JsIrBackendContext) : FileLoweringPass {
-    private val intrinsics = context.intrinsics
+    private val intrinsics by lazy { context.intrinsics }
 
-    private val primitiveClassesObject = context.primitiveClassesObject
+    private val primitiveClassesObject by lazy { context.primitiveClassesObject }
 
-    private val primitiveClassProperties = context.primitiveClassProperties
+    private val primitiveClassProperties by lazy { context.primitiveClassProperties }
 
-    private val booleanClass = primitiveClassProperties.single { it.name == Name.identifier("booleanClass") }
-    private val intClass = primitiveClassProperties.single { it.name == Name.identifier("intClass") }
-    private val doubleClass = primitiveClassProperties.single { it.name == Name.identifier("doubleClass") }
+    private val booleanClass by lazy { primitiveClassProperties.single { it.name == Name.identifier("booleanClass") } }
+    private val intClass by lazy { primitiveClassProperties.single { it.name == Name.identifier("intClass") } }
+    private val doubleClass by lazy { primitiveClassProperties.single { it.name == Name.identifier("doubleClass") } }
 
     private fun callGetKClassFromExpression(returnType: IrType, typeArgument: IrType, argument: IrExpression) =
         JsIrBuilder.buildCall(intrinsics.jsGetKClassFromExpression, returnType, listOf(typeArgument)).apply {
